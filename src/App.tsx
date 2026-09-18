@@ -35,6 +35,8 @@ import { GameOverModal } from './components/modals/GameOverModal';
 import { StatsModal } from './components/modals/StatsModal';
 
 import { Play, Zap, LogOut, Tv } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { isNativeAdsAvailable, showInterstitialAd, showRewardedAd } from './monetization';
 
 const DEFAULT_LIFELINES: LifelinesType = {
   fiftyFifty: { used: false, active: true },
@@ -236,7 +238,7 @@ export default function App() {
     const config = unityAdsService.getConfig();
     if (playerStats.gamesPlayed % config.autoInterstitialFrequency === 0) {
       setTimeout(() => {
-        setActiveAd({ type: 'interstitial' });
+        requestAd({ type: 'interstitial' });
       }, 1000);
     }
   };
@@ -341,25 +343,42 @@ export default function App() {
 
   // Lifeline 5: Unity Rewarded Ad Extra Lifeline
   const handleWatchAdExtraLifeline = () => {
-    setActiveAd({ type: 'rewarded', reason: 'Extra Lifeline Unlock' });
+    requestAd({ type: 'rewarded', reason: 'Extra Lifeline Unlock' });
   };
 
   // Unity Ad Revive
   const handleWatchAdRevive = () => {
-    setActiveAd({ type: 'rewarded', reason: 'Game Revive / Second Chance' });
+    requestAd({ type: 'rewarded', reason: 'Game Revive / Second Chance' });
+  };
+
+  // Real Unity Ads on native iOS; simulated modal in the web preview.
+  const requestAd = (ad: { type: AdType; reason?: string }) => {
+    if (!isNativeAdsAvailable()) {
+      setActiveAd(ad);
+      return;
+    }
+    if (ad.type === 'rewarded') {
+      showRewardedAd().then((granted) => applyAdReward(granted, ad.reason));
+    } else if (ad.type === 'interstitial') {
+      showInterstitialAd();
+    }
   };
 
   const handleAdClosed = (rewardGranted: boolean) => {
     refreshAdStats();
+    applyAdReward(rewardGranted, activeAd?.reason);
+    setActiveAd(null);
+  };
 
-    if (rewardGranted && activeAd) {
-      if (activeAd.reason === 'Extra Lifeline Unlock') {
+  const applyAdReward = (rewardGranted: boolean, reason?: string) => {
+    if (rewardGranted && reason) {
+      if (reason === 'Extra Lifeline Unlock') {
         setLifelines((prev) => ({
           ...prev,
           fiftyFifty: { used: false, active: true },
           rewardedExtra: { used: true, active: false }
         }));
-      } else if (activeAd.reason === 'Game Revive / Second Chance') {
+      } else if (reason === 'Game Revive / Second Chance') {
         setGameState('playing');
         setAnswerState('idle');
         setSelectedOption(null);
@@ -368,7 +387,6 @@ export default function App() {
         audioEngine.startTensionBGM();
       }
     }
-    setActiveAd(null);
   };
 
   return (
@@ -498,8 +516,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Active Unity Banner Ad Display */}
-            <div 
+            {/* Simulated banner placeholder (web preview only) */}
+            {!Capacitor.isNativePlatform() && <div
               className="glass-panel"
               style={{
                 padding: '14px 20px',
@@ -522,7 +540,7 @@ export default function App() {
               <span style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>
                 Game ID: {unityAdsService.getConfig().gameId}
               </span>
-            </div>
+            </div>}
           </div>
         )}
 

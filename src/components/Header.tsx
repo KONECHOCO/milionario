@@ -1,5 +1,5 @@
 import React from 'react';
-
+import { Capacitor } from '@capacitor/core';
 import { Volume2, VolumeX, Globe, Trophy, Tv } from 'lucide-react';
 import type { Language } from '../types';
 import { UI_TRANSLATIONS } from '../i18n/translations';
@@ -115,8 +115,8 @@ export const Header: React.FC<HeaderProps> = ({
           </select>
         </div>
 
-        {/* Unity Ads Dev Dashboard Button */}
-        <button
+        {/* Unity Ads Dev Dashboard Button (web preview only) */}
+        {!Capacitor.isNativePlatform() && <button
           onClick={onOpenUnityDashboard}
           title={t.unityAdsManager}
           style={{
@@ -148,7 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {unityImpressionsCount}
           </span>
-        </button>
+        </button>}
 
         {/* Stats Button */}
         <button

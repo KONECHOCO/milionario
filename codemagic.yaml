@@ -1,0 +1,52 @@
+workflows:
+  ios-app-store:
+    name: Milionario Quiz iOS App Store
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Ikonet Solutions
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.ikonet.milionario
+      vars:
+        BUNDLE_ID: com.ikonet.milionario
+        XCODE_WORKSPACE: ios/App/App.xcworkspace
+        XCODE_SCHEME: App
+        VITE_UNITY_IOS_GAME_ID: "REPLACE_WITH_UNITY_IOS_GAME_ID"
+        VITE_UNITY_TEST_MODE: "true"
+        VITE_UNITY_INTERSTITIAL_PLACEMENT_ID: Interstitial_iOS
+        VITE_UNITY_REWARDED_PLACEMENT_ID: Rewarded_iOS
+      xcode: latest
+      cocoapods: default
+      node: 22
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Patch Unity Ads Swift compatibility
+        script: node scripts/patch-unity-ads.mjs
+      - name: Build web app and sync iOS project
+        script: npm run mobile:sync
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios/App
+          pod install
+      - name: Set up signing profiles
+        script: xcode-project use-profiles
+      - name: Apply Codemagic build number
+        script: |
+          cd ios/App
+          agvtool new-version -all "$BUILD_NUMBER"
+      - name: Build IPA for App Store Connect
+        script: |
+          xcode-project build-ipa \
+            --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
+        submit_to_app_store: false
