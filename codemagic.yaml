@@ -13,10 +13,10 @@ workflows:
         BUNDLE_ID: com.ikonet.milionario
         XCODE_WORKSPACE: ios/App/App.xcworkspace
         XCODE_SCHEME: App
-        VITE_UNITY_IOS_GAME_ID: "REPLACE_WITH_UNITY_IOS_GAME_ID"
-        VITE_UNITY_TEST_MODE: "true"
-        VITE_UNITY_INTERSTITIAL_PLACEMENT_ID: Interstitial_iOS
-        VITE_UNITY_REWARDED_PLACEMENT_ID: Rewarded_iOS
+        VITE_UNITY_IOS_GAME_ID: "800376890"
+        VITE_UNITY_TEST_MODE: "false"
+        VITE_UNITY_INTERSTITIAL_PLACEMENT_ID: BP_Interstitial_iOS
+        VITE_UNITY_REWARDED_PLACEMENT_ID: BP_Rewarded_iOS
       xcode: latest
       cocoapods: default
       node: 22

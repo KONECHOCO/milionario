@@ -3,8 +3,8 @@ import { UnityAds } from 'capacitor-unity-ads'
 
 const iosGameId = import.meta.env.VITE_UNITY_IOS_GAME_ID as string | undefined
 const testMode = (import.meta.env.VITE_UNITY_TEST_MODE ?? 'true') !== 'false'
-const interstitialPlacementId = import.meta.env.VITE_UNITY_INTERSTITIAL_PLACEMENT_ID ?? 'Interstitial_iOS'
-const rewardedPlacementId = import.meta.env.VITE_UNITY_REWARDED_PLACEMENT_ID ?? 'Rewarded_iOS'
+const interstitialPlacementId = import.meta.env.VITE_UNITY_INTERSTITIAL_PLACEMENT_ID ?? 'BP_Interstitial_iOS'
+const rewardedPlacementId = import.meta.env.VITE_UNITY_REWARDED_PLACEMENT_ID ?? 'BP_Rewarded_iOS'
 
 let initialized = false
 
