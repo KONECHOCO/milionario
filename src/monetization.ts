@@ -1,10 +1,17 @@
 import { Capacitor } from '@capacitor/core'
 import { UnityAds } from 'capacitor-unity-ads'
 
-const iosGameId = import.meta.env.VITE_UNITY_IOS_GAME_ID as string | undefined
+const isAndroid = Capacitor.getPlatform() === 'android'
+const iosGameId = (isAndroid
+  ? import.meta.env.VITE_UNITY_ANDROID_GAME_ID
+  : import.meta.env.VITE_UNITY_IOS_GAME_ID) as string | undefined
 const testMode = (import.meta.env.VITE_UNITY_TEST_MODE ?? 'true') !== 'false'
-const interstitialPlacementId = import.meta.env.VITE_UNITY_INTERSTITIAL_PLACEMENT_ID ?? 'BP_Interstitial_iOS'
-const rewardedPlacementId = import.meta.env.VITE_UNITY_REWARDED_PLACEMENT_ID ?? 'BP_Rewarded_iOS'
+const interstitialPlacementId =
+  (isAndroid ? import.meta.env.VITE_UNITY_ANDROID_INTERSTITIAL_PLACEMENT_ID : import.meta.env.VITE_UNITY_INTERSTITIAL_PLACEMENT_ID) ??
+  (isAndroid ? 'BP_Interstitial_Android' : 'BP_Interstitial_iOS')
+const rewardedPlacementId =
+  (isAndroid ? import.meta.env.VITE_UNITY_ANDROID_REWARDED_PLACEMENT_ID : import.meta.env.VITE_UNITY_REWARDED_PLACEMENT_ID) ??
+  (isAndroid ? 'BP_Rewarded_Android' : 'BP_Rewarded_iOS')
 
 let initialized = false
 
