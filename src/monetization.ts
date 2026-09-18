@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { UnityAds } from 'capacitor-unity-ads'
+import { AppTrackingTransparency } from 'capacitor-plugin-app-tracking-transparency'
 
 const iosGameId = import.meta.env.VITE_UNITY_IOS_GAME_ID as string | undefined
 const testMode = (import.meta.env.VITE_UNITY_TEST_MODE ?? 'true') !== 'false'
@@ -15,6 +16,8 @@ export async function initializeMonetization() {
   if (!isNativeAdsAvailable() || initialized) return
 
   try {
+    // App Tracking Transparency prompt must precede ad SDK initialization
+    await AppTrackingTransparency.requestPermission().catch(() => undefined)
     await UnityAds.initialize({ gameId: iosGameId as string, testMode })
     initialized = true
     await Promise.allSettled([

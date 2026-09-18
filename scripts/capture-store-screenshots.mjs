@@ -10,7 +10,7 @@ const nativeShim = () => {
   window.webkit = { messageHandlers: { bridge: { postMessage() {} } } }
 }
 
-const iphone = { width: 430, height: 932, dpr: 3 } // 1290x2796 (6.7")
+const iphone = { width: 428, height: 926, dpr: 3 } // 1284x2778 (6.5")
 const ipad = { width: 1032, height: 1376, dpr: 2 } // 2064x2752 (13")
 
 // steps: 'menu' | 'question' | 'selected' | 'audience' | 'fifty'
