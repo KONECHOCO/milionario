@@ -59,6 +59,14 @@ const DEFAULT_PLAYER_STATS: PlayerStats = {
   achievements: []
 };
 
+const AD_UNAVAILABLE: Record<string, string> = {
+  it: 'Video non disponibile o non completato, riprova tra poco.',
+  en: 'Video unavailable or not completed, please try again shortly.',
+  es: 'Vídeo no disponible o no completado, inténtalo de nuevo en unos instantes.',
+  fr: "Vidéo indisponible ou non terminée, réessayez dans un instant.",
+  de: 'Video nicht verfügbar oder nicht abgeschlossen, bitte gleich erneut versuchen.'
+};
+
 export default function App() {
   const [language, setLanguage] = useState<Language>('it');
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -358,7 +366,10 @@ export default function App() {
       return;
     }
     if (ad.type === 'rewarded') {
-      showRewardedAd().then((granted) => applyAdReward(granted, ad.reason));
+      showRewardedAd().then((granted) => {
+        if (!granted) window.alert(AD_UNAVAILABLE[language]);
+        applyAdReward(granted, ad.reason);
+      });
     } else if (ad.type === 'interstitial') {
       showInterstitialAd();
     }

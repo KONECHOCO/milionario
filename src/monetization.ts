@@ -32,6 +32,8 @@ export async function initializeMonetization() {
 export async function showInterstitialAd(): Promise<boolean> {
   if (!initialized) return false
   try {
+    const { loaded } = await UnityAds.isInterstitialLoaded()
+    if (!loaded) await UnityAds.loadInterstitial({ placementId: interstitialPlacementId })
     const { success } = await UnityAds.showInterstitial()
     return success
   } catch (error) {
@@ -44,8 +46,11 @@ export async function showInterstitialAd(): Promise<boolean> {
 
 /** Resolves true only when the user watched the rewarded video to completion. */
 export async function showRewardedAd(): Promise<boolean> {
+  if (!initialized) await initializeMonetization()
   if (!initialized) return false
   try {
+    const { loaded } = await UnityAds.isRewardedVideoLoaded()
+    if (!loaded) await UnityAds.loadRewardedVideo({ placementId: rewardedPlacementId })
     const { success } = await UnityAds.showRewardedVideo()
     return success
   } catch (error) {
