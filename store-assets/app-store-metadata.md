@@ -15,7 +15,7 @@ app name or subtitle (Apple indexes those separately), no competitor/TV-show tra
 (never use "Who Wants to Be a Millionaire" / "Chi vuol essere milionario").
 
 ## Italiano (it)
-Name: Milionario Quiz
+Name: Milionario Quiz Multilingua (unchanged: "Milionario Quiz" is taken)
 Subtitle: Domande di cultura generale
 Promo: Nuove modalità: Sfida Lampo a tempo e Sfida del giorno con serie da mantenere!
 Keywords: trivia,risposte,gioco,sfida,giornaliera,premio,milione,aiuti,sapere,logica,storia,geografia,scienza
@@ -30,7 +30,7 @@ Traguardi di sicurezza, statistiche personali, effetti sonori da studio televisi
 Gioco di pura abilità con premi virtuali: nessuna vincita di denaro reale.
 
 ## English (en-US)
-Name: Millionaire Quiz: Trivia Game
+Name: Millionaire Quiz Multilingual
 Subtitle: General knowledge challenge
 Promo: New: timed Lightning Round and a Daily Challenge with streaks to keep!
 Keywords: questions,answers,brain,daily,challenge,test,iq,history,geography,science,fun,family,prize,million
