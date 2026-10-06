@@ -37,7 +37,7 @@ import { StatsModal } from './components/modals/StatsModal';
 
 import { Play, Zap, LogOut, Tv, Timer, CalendarDays, Flame } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { isNativeAdsAvailable, showInterstitialAd, showRewardedAd } from './monetization';
+import { isNativeAdsAvailable, showInterstitialAd, showRewardedAd, getAdDiagnostics, lastAdError } from './monetization';
 
 const DEFAULT_LIFELINES: LifelinesType = {
   fiftyFifty: { used: false, active: true },
@@ -208,6 +208,18 @@ export default function App() {
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft, gameState, answerState, timerPaused]);
+
+  // Hidden diagnostics: 5 quick taps on the logo
+  const logoTaps = useRef<number[]>([]);
+  const [diagnostics, setDiagnostics] = useState<string | null>(null);
+  const handleLogoTap = () => {
+    const now = Date.now();
+    logoTaps.current = [...logoTaps.current.filter((t) => now - t < 3000), now];
+    if (logoTaps.current.length >= 5) {
+      logoTaps.current = [];
+      getAdDiagnostics().then(setDiagnostics);
+    }
+  };
 
   const refreshAdStats = () => {
     setUnityStats(unityAdsService.getStats());
@@ -516,7 +528,7 @@ export default function App() {
       showRewardedAd().then((granted) => {
         setAdLoading(false);
         if (!granted) {
-          setNotice(AD_UNAVAILABLE[language]);
+          setNotice(`${AD_UNAVAILABLE[language]}${lastAdError ? `\n(${lastAdError})` : ''}`);
           if (gameState === 'playing') audioEngine.startTensionBGM();
         }
         applyAdReward(granted, ad.reason);
@@ -575,6 +587,7 @@ export default function App() {
         onOpenStats={() => setShowStatsModal(true)}
         onOpenUnityDashboard={() => setShowUnityDashboard(true)}
         unityImpressionsCount={unityStats.totalImpressions}
+        onLogoTap={handleLogoTap}
       />
 
       {/* Main Content View */}
@@ -843,6 +856,17 @@ export default function App() {
         </div>
       )}
 
+      {diagnostics && (
+        <div className="modal-backdrop" style={{ zIndex: 4000 }} onClick={() => setDiagnostics(null)}>
+          <pre
+            className="glass-panel"
+            style={{ width: '92%', maxWidth: '640px', maxHeight: '80vh', overflow: 'auto', padding: '16px', fontSize: '0.72rem', color: '#e2e8f0', whiteSpace: 'pre-wrap', userSelect: 'text' }}
+          >
+            {diagnostics}
+          </pre>
+        </div>
+      )}
+
       {/* Short notice toast */}
       {notice && (
         <div
@@ -861,7 +885,8 @@ export default function App() {
             fontWeight: 700,
             fontSize: '0.9rem',
             zIndex: 3000,
-            textAlign: 'center'
+            textAlign: 'center',
+            whiteSpace: 'pre-line'
           }}
         >
           {notice}

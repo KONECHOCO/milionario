@@ -29,3 +29,17 @@ source = source.replace('    func showInterstitial(callback: @escaping Interstit
 if (!source.includes('retainedDelegates["rewardedShow"]')) throw new Error('Unity Ads patch did not apply: plugin source changed')
 await writeFile(path, source)
 console.log('Patched capacitor-unity-ads for current Swift SDK naming and access control.')
+
+// App Tracking Transparency: ask from the main thread (Capacitor runs plugin methods on a
+// background queue), which is where iOS reliably presents the system prompt.
+const attPath = 'node_modules/capacitor-plugin-app-tracking-transparency/ios/Sources/AppTrackingTransparencyPlugin/AppTrackingTransparencyPlugin.swift'
+let att = await readFile(attPath, 'utf8')
+if (!att.includes('DispatchQueue.main.async { [weak self] in self?.requestPermission(call) }')) {
+  att = att.replace(
+    '    @objc func requestPermission(_ call: CAPPluginCall) {\n',
+    '    @objc func requestPermission(_ call: CAPPluginCall) {\n        if !Thread.isMainThread { DispatchQueue.main.async { [weak self] in self?.requestPermission(call) }; return }\n',
+  )
+  if (!att.includes('Thread.isMainThread')) throw new Error('ATT patch did not apply: plugin source changed')
+  await writeFile(attPath, att)
+  console.log('Patched App Tracking Transparency plugin to request on the main thread.')
+}

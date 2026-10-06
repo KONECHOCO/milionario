@@ -13,6 +13,36 @@ const FALLBACK_REWARDED = 'Rewarded_iOS'
 
 let initPromise: Promise<boolean> | null = null
 
+/** On-device diagnostics (5 taps on the header logo), since native logs are not reachable. */
+const diagnosticLog: string[] = []
+export let lastAdError = ''
+
+function logStep(message: string) {
+  const time = new Date().toISOString().slice(11, 19)
+  diagnosticLog.push(`${time} ${message}`)
+  if (diagnosticLog.length > 40) diagnosticLog.shift()
+}
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error))
+
+export async function getAdDiagnostics(): Promise<string> {
+  let att = 'n/a'
+  try {
+    att = Capacitor.isNativePlatform() ? (await AppTrackingTransparency.getStatus()).status : 'web'
+  } catch (error) {
+    att = 'error: ' + errorText(error)
+  }
+  return [
+    `platform: ${Capacitor.getPlatform()} native-ads: ${isNativeAdsAvailable()}`,
+    `gameId: ${iosGameId ?? '-'} testMode: ${testMode}`,
+    `placements: ${rewardedPlacementId} / ${interstitialPlacementId}`,
+    `ATT: ${att}`,
+    `last error: ${lastAdError || '-'}`,
+    '--- log ---',
+    ...diagnosticLog,
+  ].join('\n')
+}
+
 /** True when real Unity Ads can run (native iOS build with a Game ID). */
 export const isNativeAdsAvailable = () => Capacitor.isNativePlatform() && Boolean(iosGameId)
 
@@ -47,8 +77,10 @@ async function requestTrackingPermission() {
     await waitUntilVisible()
     await delay(attempt === 0 ? 1000 : 1500)
     const { status } = await AppTrackingTransparency.getStatus()
+    logStep(`ATT status before request: ${status}`)
     if (status !== 'notDetermined') return status
     const result = await AppTrackingTransparency.requestPermission()
+    logStep(`ATT request result: ${result.status}`)
     if (result.status !== 'notDetermined') return result.status
   }
   return 'notDetermined'
@@ -60,13 +92,16 @@ export function initializeMonetization(): Promise<boolean> {
     initPromise = (async () => {
       try {
         // ATT decision must come before the ad SDK collects anything
-        await requestTrackingPermission().catch(() => undefined)
+        await requestTrackingPermission().catch((error) => logStep('ATT error: ' + errorText(error)))
+        logStep('Unity init start')
         await withTimeout(UnityAds.initialize({ gameId: iosGameId as string, testMode }), 20000, 'Unity init')
+        logStep('Unity init OK')
         loadRewarded().catch(() => undefined)
         loadInterstitial().catch(() => undefined)
         return true
       } catch (error) {
-        console.info('Unity Ads initialization failed', error)
+        lastAdError = 'init: ' + errorText(error)
+        logStep(lastAdError)
         initPromise = null // allow a retry on the next ad request
         return false
       }
@@ -78,9 +113,13 @@ export function initializeMonetization(): Promise<boolean> {
 async function loadWithFallback(load: (id: string) => Promise<void>, primary: string, fallback: string) {
   try {
     await withTimeout(load(primary), 15000, `load ${primary}`)
+    logStep(`loaded ${primary}`)
   } catch (error) {
+    lastAdError = `load ${primary}: ${errorText(error)}`
+    logStep(lastAdError)
     if (primary === fallback) throw error
     await withTimeout(load(fallback), 15000, `load ${fallback}`)
+    logStep(`loaded ${fallback}`)
   }
 }
 
@@ -98,7 +137,8 @@ export async function showInterstitialAd(): Promise<boolean> {
     const { success } = await UnityAds.showInterstitial()
     return success
   } catch (error) {
-    console.info('Unity Ads interstitial skipped', error)
+    lastAdError = 'interstitial: ' + errorText(error)
+    logStep(lastAdError)
     return false
   } finally {
     loadInterstitial().catch(() => undefined)
@@ -107,14 +147,19 @@ export async function showInterstitialAd(): Promise<boolean> {
 
 /** Resolves true only when the user watched the rewarded video to completion. */
 export async function showRewardedAd(): Promise<boolean> {
+  logStep('rewarded requested')
   if (!(await initializeMonetization())) return false
   try {
     const { loaded } = await UnityAds.isRewardedVideoLoaded()
+    logStep(`rewarded loaded: ${loaded}`)
     if (!loaded) await loadRewarded()
     const { success } = await UnityAds.showRewardedVideo()
+    logStep(`rewarded finished, completed: ${success}`)
+    if (!success) lastAdError = 'rewarded: closed before the end'
     return success
   } catch (error) {
-    console.info('Unity Ads rewarded failed', error)
+    lastAdError = 'rewarded: ' + errorText(error)
+    logStep(lastAdError)
     return false
   } finally {
     loadRewarded().catch(() => undefined)

@@ -12,6 +12,7 @@ interface HeaderProps {
   onOpenStats: () => void;
   onOpenUnityDashboard: () => void;
   unityImpressionsCount: number;
+  onLogoTap?: () => void;
 }
 
 const LANGUAGES: { code: Language; label: string; flag: string }[] = [
@@ -29,7 +30,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSound,
   onOpenStats,
   onOpenUnityDashboard,
-  unityImpressionsCount
+  unityImpressionsCount,
+  onLogoTap
 }) => {
   const t = UI_TRANSLATIONS[currentLanguage];
 
@@ -53,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Title & Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div 
+          onClick={onLogoTap}
           style={{
             width: '42px',
             height: '42px',
