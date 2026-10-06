@@ -84,7 +84,7 @@ export const ExpertModal: React.FC<ExpertModalProps> = ({
               {advice.role}
             </p>
             <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
-              Confidence level: <strong style={{ color: '#10b981' }}>{advice.confidence}%</strong>
+              {t.confidence}: <strong style={{ color: '#10b981' }}>{advice.confidence}%</strong>
             </p>
           </div>
         </div>
@@ -102,7 +102,7 @@ export const ExpertModal: React.FC<ExpertModalProps> = ({
             fontStyle: 'italic'
           }}
         >
-          "{advice.dialogue}"
+          {advice.dialogue}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '24px' }}>

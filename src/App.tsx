@@ -1,21 +1,22 @@
-import { useState, useEffect } from 'react';
-import type { 
-  Language, 
-  GameMode, 
-  Lifelines as LifelinesType, 
-  AudienceVote, 
-  ExpertAdvice, 
-  AdType, 
+import { useState, useEffect, useRef } from 'react';
+import type {
+  Language,
+  GameMode,
+  Lifelines as LifelinesType,
+  AudienceVote,
+  ExpertAdvice,
+  AdType,
   PlayerStats,
   Question
 } from './types';
 import { UI_TRANSLATIONS } from './i18n/translations';
-import { 
-  CLASSIC_PRIZE_LADDER, 
-  SUPER_PRIZE_LADDER, 
-  SAFETY_CHECKPOINTS_CLASSIC, 
-  SAFETY_CHECKPOINTS_SUPER,
-  getRandomQuestionForLevel
+import {
+  getPrizeLadder,
+  getSafetyCheckpoints,
+  getRandomQuestionForLevel,
+  seededRandom,
+  BLITZ_SECONDS_PER_QUESTION,
+  QUESTION_COUNT
 } from './data/questions';
 
 import { audioEngine } from './services/audioEngine';
@@ -34,7 +35,7 @@ import { UnityDevDashboard } from './components/modals/UnityDevDashboard';
 import { GameOverModal } from './components/modals/GameOverModal';
 import { StatsModal } from './components/modals/StatsModal';
 
-import { Play, Zap, LogOut, Tv } from 'lucide-react';
+import { Play, Zap, LogOut, Tv, Timer, CalendarDays, Flame } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { isNativeAdsAvailable, showInterstitialAd, showRewardedAd } from './monetization';
 
@@ -47,6 +48,8 @@ const DEFAULT_LIFELINES: LifelinesType = {
 };
 
 const STATS_STORAGE_KEY = 'milionario_player_stats';
+const LANGUAGE_STORAGE_KEY = 'milionario_language';
+const DAILY_STORAGE_KEY = 'milionario_daily';
 
 const DEFAULT_PLAYER_STATS: PlayerStats = {
   gamesPlayed: 0,
@@ -67,8 +70,62 @@ const AD_UNAVAILABLE: Record<string, string> = {
   de: 'Video nicht verfügbar oder nicht abgeschlossen, bitte gleich erneut versuchen.'
 };
 
+const SUPPORTED_LANGUAGES: Language[] = ['it', 'en', 'es', 'fr', 'de'];
+const OPTION_LETTERS = ['A', 'B', 'C', 'D'];
+
+const safeStorageGet = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeStorageSet = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore: storage can be unavailable
+  }
+};
+
+/** Saved choice first, then the device language, then English. */
+function initialLanguage(): Language {
+  const saved = safeStorageGet(LANGUAGE_STORAGE_KEY) as Language | null;
+  if (saved && SUPPORTED_LANGUAGES.includes(saved)) return saved;
+  const preferred = (navigator.languages ?? [navigator.language]).map((l) => l.slice(0, 2).toLowerCase());
+  return (preferred.find((l) => SUPPORTED_LANGUAGES.includes(l as Language)) as Language) ?? 'en';
+}
+
+const todayKey = (date = new Date()) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const yesterdayKey = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return todayKey(d);
+};
+
+interface DailyState {
+  lastPlayed: string;
+  streak: number;
+  bestStreak: number;
+}
+
+function readDailyState(): DailyState {
+  try {
+    const saved = JSON.parse(safeStorageGet(DAILY_STORAGE_KEY) ?? 'null');
+    if (saved && typeof saved.lastPlayed === 'string') return saved;
+  } catch {
+    // fall through to defaults
+  }
+  return { lastPlayed: '', streak: 0, bestStreak: 0 };
+}
+
+const isTimedMode = (mode: GameMode) => mode === 'blitz' || mode === 'daily';
+
 export default function App() {
-  const [language, setLanguage] = useState<Language>('it');
+  const [language, setLanguage] = useState<Language>(initialLanguage);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'gameover'>('menu');
   const [gameMode, setGameMode] = useState<GameMode>('classic');
@@ -77,10 +134,13 @@ export default function App() {
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [disabledOptions, setDisabledOptions] = useState<number[]>([]);
   const [answerState, setAnswerState] = useState<'idle' | 'selected' | 'locked' | 'correct' | 'wrong'>('idle');
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timedOut, setTimedOut] = useState<boolean>(false);
 
   const [lifelines, setLifelines] = useState<LifelinesType>(DEFAULT_LIFELINES);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [usedQuestionIds, setUsedQuestionIds] = useState<Set<string>>(new Set());
+  const rngRef = useRef<() => number>(Math.random);
 
   // Modals state
   const [showAudienceModal, setShowAudienceModal] = useState<boolean>(false);
@@ -90,6 +150,8 @@ export default function App() {
   const [expertAdvice, setExpertAdvice] = useState<ExpertAdvice | null>(null);
 
   const [activeAd, setActiveAd] = useState<{ type: AdType; reason?: string } | null>(null);
+  const [adLoading, setAdLoading] = useState<boolean>(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [showUnityDashboard, setShowUnityDashboard] = useState<boolean>(false);
   const [showStatsModal, setShowStatsModal] = useState<boolean>(false);
 
@@ -101,19 +163,51 @@ export default function App() {
 
   // Player Stats
   const [playerStats, setPlayerStats] = useState<PlayerStats>(() => {
-    const saved = localStorage.getItem(STATS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : DEFAULT_PLAYER_STATS;
+    try {
+      const saved = safeStorageGet(STATS_STORAGE_KEY);
+      return saved ? { ...DEFAULT_PLAYER_STATS, ...JSON.parse(saved) } : DEFAULT_PLAYER_STATS;
+    } catch {
+      return DEFAULT_PLAYER_STATS;
+    }
   });
+  const [daily, setDaily] = useState<DailyState>(readDailyState);
 
   const [unityStats, setUnityStats] = useState(unityAdsService.getStats());
 
   const t = UI_TRANSLATIONS[language];
-  const prizeLadder = gameMode === 'super' ? SUPER_PRIZE_LADDER : CLASSIC_PRIZE_LADDER;
-  const safetyCheckpoints = gameMode === 'super' ? SAFETY_CHECKPOINTS_SUPER : SAFETY_CHECKPOINTS_CLASSIC;
+  const prizeLadder = getPrizeLadder(gameMode);
+  const safetyCheckpoints = getSafetyCheckpoints(gameMode);
+  const dailyDoneToday = daily.lastPlayed === todayKey();
+  const visibleStreak = daily.lastPlayed === todayKey() || daily.lastPlayed === yesterdayKey() ? daily.streak : 0;
 
   useEffect(() => {
-    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(playerStats));
+    safeStorageSet(STATS_STORAGE_KEY, JSON.stringify(playerStats));
   }, [playerStats]);
+
+  useEffect(() => {
+    safeStorageSet(LANGUAGE_STORAGE_KEY, language);
+    document.documentElement.lang = language;
+  }, [language]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 3500);
+    return () => clearTimeout(id);
+  }, [notice]);
+
+  // Countdown for the timed modes; paused while a lifeline popup or an ad is on screen.
+  const timerPaused = showAudienceModal || showExpertModal || adLoading || activeAd !== null;
+  useEffect(() => {
+    if (gameState !== 'playing' || timeLeft === null || timerPaused) return;
+    if (answerState !== 'idle' && answerState !== 'selected') return;
+    if (timeLeft <= 0) {
+      handleTimeUp();
+      return;
+    }
+    const id = setTimeout(() => setTimeLeft((s) => (s === null ? s : s - 1)), 1000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeLeft, gameState, answerState, timerPaused]);
 
   const refreshAdStats = () => {
     setUnityStats(unityAdsService.getStats());
@@ -124,9 +218,14 @@ export default function App() {
     setIsMuted(muted);
   };
 
+  const resetTimer = (mode: GameMode = gameMode) => {
+    setTimedOut(false);
+    setTimeLeft(isTimedMode(mode) ? BLITZ_SECONDS_PER_QUESTION : null);
+  };
+
   // Helper to load a randomized question for a level
-  const loadRandomQuestion = (levelNumber: number, usedSet: Set<string>) => {
-    const q = getRandomQuestionForLevel(levelNumber, usedSet);
+  const loadRandomQuestion = (levelNumber: number, usedSet: Set<string>, mode: GameMode = gameMode) => {
+    const q = getRandomQuestionForLevel(levelNumber, usedSet, mode, rngRef.current);
     setCurrentQuestion(q);
     const newSet = new Set(usedSet);
     newSet.add(q.id);
@@ -136,6 +235,9 @@ export default function App() {
 
   // Start new game
   const handleStartGame = (mode: GameMode) => {
+    if (mode === 'daily' && dailyDoneToday) return;
+    rngRef.current = mode === 'daily' ? seededRandom(`daily-${todayKey()}`) : Math.random;
+
     setGameMode(mode);
     setGameState('playing');
     setCurrentLevelIndex(0);
@@ -143,10 +245,10 @@ export default function App() {
     setDisabledOptions([]);
     setAnswerState('idle');
     setLifelines(DEFAULT_LIFELINES);
-    setCanRevive(true);
+    setCanRevive(mode !== 'daily');
+    resetTimer(mode);
 
-    const emptySet = new Set<string>();
-    loadRandomQuestion(1, emptySet);
+    loadRandomQuestion(1, new Set<string>(), mode);
 
     audioEngine.startTensionBGM();
     setPlayerStats((prev) => ({
@@ -163,13 +265,42 @@ export default function App() {
     setAnswerState('selected');
   };
 
+  const handleWrongAnswer = () => {
+    setAnswerState('wrong');
+    audioEngine.playWrong();
+
+    // Calculate safety prize
+    let safetyPrize = 0;
+    let retained = false;
+
+    const achievedLevel = currentLevelIndex + 1;
+    const reachedSafeties = safetyCheckpoints.filter((l) => l < achievedLevel);
+    if (reachedSafeties.length > 0) {
+      const maxSafetyLevel = Math.max(...reachedSafeties);
+      safetyPrize = prizeLadder[maxSafetyLevel - 1];
+      retained = true;
+    }
+
+    // Leave time to see the right answer flashing in green
+    setTimeout(() => {
+      handleEndGame(safetyPrize, false, retained);
+    }, 3200);
+  };
+
+  const handleTimeUp = () => {
+    if (!currentQuestion) return;
+    setTimedOut(true);
+    setSelectedOption(null);
+    handleWrongAnswer();
+  };
+
   // Confirm Answer
   const handleConfirmAnswer = () => {
     if (selectedOption === null || !currentQuestion) return;
     setAnswerState('locked');
     audioEngine.playLock();
 
-    // Reveal after 1.8 seconds suspense delay
+    // Reveal after a short suspense delay
     setTimeout(() => {
       const isCorrect = selectedOption === currentQuestion.correctAnswer;
 
@@ -197,43 +328,39 @@ export default function App() {
             setSelectedOption(null);
             setDisabledOptions([]);
             setAnswerState('idle');
+            resetTimer();
           }
         }, 2200);
-
       } else {
-        setAnswerState('wrong');
-        audioEngine.playWrong();
-
-        // Calculate safety prize
-        let safetyPrize = 0;
-        let retained = false;
-
-        const achievedLevel = currentLevelIndex + 1;
-        const reachedSafeties = safetyCheckpoints.filter((l) => l < achievedLevel);
-        if (reachedSafeties.length > 0) {
-          const maxSafetyLevel = Math.max(...reachedSafeties);
-          safetyPrize = prizeLadder[maxSafetyLevel - 1];
-          retained = true;
-        }
-
-        setTimeout(() => {
-          handleEndGame(safetyPrize, false, retained);
-        }, 2200);
+        handleWrongAnswer();
       }
-    }, 1800);
+    }, isTimedMode(gameMode) ? 900 : 1800);
+  };
+
+  const recordDailyPlayed = () => {
+    setDaily((prev) => {
+      const today = todayKey();
+      if (prev.lastPlayed === today) return prev;
+      const streak = prev.lastPlayed === yesterdayKey() ? prev.streak + 1 : 1;
+      const next = { lastPlayed: today, streak, bestStreak: Math.max(prev.bestStreak, streak) };
+      safeStorageSet(DAILY_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   // End game summary
-  const handleEndGame = (won: number, victory: boolean, safetyRetained: boolean) => {
+  const handleEndGame = (won: number, victory: boolean, safetyRetained: boolean, walkedAway = false) => {
     audioEngine.stopTensionBGM();
     setFinalWonAmount(won);
     setIsVictory(victory);
     setIsSafetyRetained(safetyRetained);
     setGameState('gameover');
+    setTimeLeft(null);
 
     if (victory) {
       audioEngine.playVictory();
     }
+    if (gameMode === 'daily') recordDailyPlayed();
 
     setPlayerStats((prev) => ({
       ...prev,
@@ -242,9 +369,11 @@ export default function App() {
       superWins: victory && gameMode === 'super' ? prev.superWins + 1 : prev.superWins
     }));
 
-    // Trigger Interstitial Ad automatically based on frequency setting
+    // Interstitial every few games, never when the player can still use the revive video
     const config = unityAdsService.getConfig();
-    if (playerStats.gamesPlayed % config.autoInterstitialFrequency === 0) {
+    if (walkedAway) setCanRevive(false);
+    const offerRevive = canRevive && !victory && !walkedAway;
+    if (!offerRevive && (playerStats.gamesPlayed % config.autoInterstitialFrequency === 0)) {
       setTimeout(() => {
         requestAd({ type: 'interstitial' });
       }, 1000);
@@ -254,51 +383,58 @@ export default function App() {
   // Walk Away with cash
   const handleWalkAway = () => {
     const cashOutAmount = currentLevelIndex > 0 ? prizeLadder[currentLevelIndex - 1] : 0;
-    handleEndGame(cashOutAmount, false, false);
+    handleEndGame(cashOutAmount, false, false, true);
   };
+
+  const countLifelineUse = () => {
+    setPlayerStats((prev) => ({ ...prev, lifelinesUsedCount: prev.lifelinesUsedCount + 1 }));
+  };
+
+  /** 0 at the first question, 1 at the last one. */
+  const difficulty = () => (prizeLadder.length > 1 ? currentLevelIndex / (prizeLadder.length - 1) : 0);
 
   // Lifeline 1: 50:50
   const handleUseFiftyFifty = () => {
     if (lifelines.fiftyFifty.used || answerState !== 'idle' || !currentQuestion) return;
     audioEngine.playLifeline();
+    countLifelineUse();
 
     const correct = currentQuestion.correctAnswer;
-    const wrongOptions = [0, 1, 2, 3].filter((idx) => idx !== correct);
+    const wrongOptions = [0, 1, 2, 3].filter((idx) => idx !== correct && !disabledOptions.includes(idx));
     const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
-    const toDisable = [shuffled[0], shuffled[1]];
 
-    setDisabledOptions(toDisable);
+    setDisabledOptions([...disabledOptions, ...shuffled.slice(0, 2)]);
     setLifelines((prev) => ({
       ...prev,
       fiftyFifty: { used: true, active: false }
     }));
   };
 
-  // Lifeline 2: Ask Audience
+  // Lifeline 2: Ask Audience — less reliable as the questions get harder
   const handleUseAudience = () => {
     if (lifelines.audience.used || answerState !== 'idle' || !currentQuestion) return;
     audioEngine.playLifeline();
+    countLifelineUse();
 
     const correct = currentQuestion.correctAnswer;
-    let votes: AudienceVote[] = [];
+    const remaining = [0, 1, 2, 3].filter((i) => !disabledOptions.includes(i));
+    const wrong = remaining.filter((i) => i !== correct);
 
-    const correctPct = Math.floor(Math.random() * 30) + 50; // 50-80%
-    const remainingPct = 100 - correctPct;
+    const base = 78 - 38 * difficulty(); // ~78% on easy questions, ~40% on the hardest
+    let correctPct = Math.round(Math.min(92, Math.max(28, base + (Math.random() * 16 - 8))));
+    if (wrong.length === 0) correctPct = 100;
 
-    const wrongPct1 = Math.floor(Math.random() * (remainingPct - 5));
-    const wrongPct2 = Math.floor(Math.random() * (remainingPct - wrongPct1));
-    const wrongPct3 = remainingPct - wrongPct1 - wrongPct2;
+    const weights = wrong.map(() => Math.random() + 0.2);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const wrongPcts = weights.map((w) => Math.floor(((100 - correctPct) * w) / totalWeight));
+    // Give rounding leftovers to the correct answer so the total is exactly 100
+    correctPct = 100 - wrongPcts.reduce((a, b) => a + b, 0);
 
-    const wrongPcts = [wrongPct1, wrongPct2, wrongPct3];
-    let wrongIdx = 0;
-
-    for (let i = 0; i < 4; i++) {
-      if (i === correct) {
-        votes.push({ option: i, percentage: correctPct });
-      } else {
-        votes.push({ option: i, percentage: wrongPcts[wrongIdx++] || 0 });
-      }
-    }
+    const votes: AudienceVote[] = [0, 1, 2, 3].map((i) => {
+      if (i === correct) return { option: i, percentage: correctPct };
+      const wi = wrong.indexOf(i);
+      return { option: i, percentage: wi >= 0 ? wrongPcts[wi] : 0 };
+    });
 
     setAudienceVotes(votes);
     setShowAudienceModal(true);
@@ -308,22 +444,28 @@ export default function App() {
     }));
   };
 
-  // Lifeline 3: AI Expert Call
+  // Lifeline 3: Expert call — may hesitate (and occasionally be wrong) on hard questions
   const handleUseExpert = () => {
     if (lifelines.expert.used || answerState !== 'idle' || !currentQuestion) return;
     audioEngine.playLifeline();
+    countLifelineUse();
 
     const optionsText = currentQuestion.options[language] || currentQuestion.options.it;
     const correctIdx = currentQuestion.correctAnswer;
-    const correctText = optionsText[correctIdx];
+    const d = difficulty();
+    const confidence = Math.round(95 - 50 * d + (Math.random() * 10 - 5));
+    const wrongChoices = [0, 1, 2, 3].filter((i) => i !== correctIdx && !disabledOptions.includes(i));
+    const isWrong = wrongChoices.length > 0 && Math.random() < 0.3 * d;
+    const suggested = isWrong ? wrongChoices[Math.floor(Math.random() * wrongChoices.length)] : correctIdx;
+    const template = confidence >= 70 ? t.expertSure : t.expertUnsure;
 
     const advice: ExpertAdvice = {
       expertName: 'Prof. Sofia Moretti',
-      role: 'Head of General Knowledge Academy',
+      role: t.expertRole,
       avatar: 'expert_1',
-      confidence: 85,
-      suggestedAnswer: correctIdx,
-      dialogue: `I'm quite confident about this one! Based on my research in ${currentQuestion.category}, option (${['A','B','C','D'][correctIdx]}: "${correctText}") is definitely the correct answer.`
+      confidence,
+      suggestedAnswer: suggested,
+      dialogue: template.replace('{letter}', OPTION_LETTERS[suggested]).replace('{answer}', optionsText[suggested])
     };
 
     setExpertAdvice(advice);
@@ -338,10 +480,12 @@ export default function App() {
   const handleUseSwap = () => {
     if (lifelines.swap.used || answerState !== 'idle') return;
     audioEngine.playLifeline();
+    countLifelineUse();
 
     loadRandomQuestion(currentLevelIndex + 1, usedQuestionIds);
     setSelectedOption(null);
     setDisabledOptions([]);
+    resetTimer();
 
     setLifelines((prev) => ({
       ...prev,
@@ -349,12 +493,12 @@ export default function App() {
     }));
   };
 
-  // Lifeline 5: Unity Rewarded Ad Extra Lifeline
+  // Lifeline 5: Rewarded video unlocks an extra 50:50
   const handleWatchAdExtraLifeline = () => {
     requestAd({ type: 'rewarded', reason: 'Extra Lifeline Unlock' });
   };
 
-  // Unity Ad Revive
+  // Rewarded video revive
   const handleWatchAdRevive = () => {
     requestAd({ type: 'rewarded', reason: 'Game Revive / Second Chance' });
   };
@@ -366,8 +510,15 @@ export default function App() {
       return;
     }
     if (ad.type === 'rewarded') {
+      if (adLoading) return;
+      setAdLoading(true);
+      audioEngine.stopTensionBGM();
       showRewardedAd().then((granted) => {
-        if (!granted) window.alert(AD_UNAVAILABLE[language]);
+        setAdLoading(false);
+        if (!granted) {
+          setNotice(AD_UNAVAILABLE[language]);
+          if (gameState === 'playing') audioEngine.startTensionBGM();
+        }
         applyAdReward(granted, ad.reason);
       });
     } else if (ad.type === 'interstitial') {
@@ -390,14 +541,26 @@ export default function App() {
           rewardedExtra: { used: true, active: false }
         }));
       } else if (reason === 'Game Revive / Second Chance') {
+        // Second chance on a new question of the same level (the old one was revealed)
+        loadRandomQuestion(currentLevelIndex + 1, usedQuestionIds);
         setGameState('playing');
         setAnswerState('idle');
         setSelectedOption(null);
         setDisabledOptions([]);
         setCanRevive(false);
+        resetTimer();
         audioEngine.startTensionBGM();
       }
     }
+  };
+
+  const modeButtonBase = {
+    border: 'none',
+    borderRadius: '20px',
+    padding: '24px',
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+    transition: 'all 0.3s ease'
   };
 
   return (
@@ -417,7 +580,7 @@ export default function App() {
       {/* Main Content View */}
       <main style={{ flex: 1, position: 'relative', zIndex: 1, padding: '0 16px 24px 16px' }}>
         {gameState === 'menu' && (
-          <div 
+          <div
             style={{
               maxWidth: '900px',
               margin: '40px auto 0 auto',
@@ -426,7 +589,7 @@ export default function App() {
             }}
           >
             {/* Main Menu Hero Card */}
-            <div 
+            <div
               className="glass-panel"
               style={{
                 padding: '48px 32px',
@@ -436,7 +599,7 @@ export default function App() {
                 marginBottom: '32px'
               }}
             >
-              <div 
+              <div
                 style={{
                   width: '90px',
                   height: '90px',
@@ -456,7 +619,7 @@ export default function App() {
                 €
               </div>
 
-              <h2 
+              <h2
                 style={{
                   fontFamily: 'var(--font-heading)',
                   fontSize: '2.4rem',
@@ -469,23 +632,21 @@ export default function App() {
               >
                 {t.appTitle}
               </h2>
-              <p style={{ fontSize: '1.1rem', color: '#cbd5e1', maxWidth: '600px', margin: '0 auto 36px auto' }}>
+              <p style={{ fontSize: '1.1rem', color: '#cbd5e1', maxWidth: '600px', margin: '0 auto 8px auto' }}>
                 {t.classicDesc}
+              </p>
+              <p style={{ fontSize: '0.85rem', color: 'var(--gold-light)', fontWeight: 700, marginBottom: '32px' }}>
+                {QUESTION_COUNT}+ {t.questionsInBank}
               </p>
 
               {/* Game Mode Selection Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '20px' }}>
                 <button
                   onClick={() => handleStartGame('classic')}
                   style={{
+                    ...modeButtonBase,
                     background: 'var(--gold-gradient)',
-                    border: 'none',
-                    borderRadius: '20px',
-                    padding: '24px',
                     color: '#000',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
                     boxShadow: '0 10px 30px rgba(245, 158, 11, 0.5)'
                   }}
                 >
@@ -496,21 +657,16 @@ export default function App() {
                     </h3>
                   </div>
                   <p style={{ fontSize: '0.85rem', fontWeight: 600, opacity: 0.9 }}>
-                    15 Questions • 2 Checkpoints • €1.000.000
+                    {t.classicInfo}
                   </p>
                 </button>
 
                 <button
                   onClick={() => handleStartGame('super')}
                   style={{
+                    ...modeButtonBase,
                     background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
-                    border: 'none',
-                    borderRadius: '20px',
-                    padding: '24px',
                     color: '#fff',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
                     boxShadow: '0 10px 30px rgba(6, 182, 212, 0.5)'
                   }}
                 >
@@ -521,7 +677,55 @@ export default function App() {
                     </h3>
                   </div>
                   <p style={{ fontSize: '0.85rem', fontWeight: 600, opacity: 0.9 }}>
-                    25 Questions • Ultimate Prize €5.000.000
+                    {t.superInfo}
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => handleStartGame('blitz')}
+                  style={{
+                    ...modeButtonBase,
+                    background: 'linear-gradient(135deg, #e11d48 0%, #f97316 100%)',
+                    color: '#fff',
+                    boxShadow: '0 10px 30px rgba(225, 29, 72, 0.45)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <Timer size={24} />
+                    <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: '1.15rem' }}>
+                      {t.playBlitz}
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', fontWeight: 600, opacity: 0.9 }}>
+                    {t.blitzDesc}
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => handleStartGame('daily')}
+                  disabled={dailyDoneToday}
+                  style={{
+                    ...modeButtonBase,
+                    background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
+                    color: '#fff',
+                    boxShadow: '0 10px 30px rgba(124, 58, 237, 0.45)',
+                    opacity: dailyDoneToday ? 0.6 : 1,
+                    cursor: dailyDoneToday ? 'default' : 'pointer'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <CalendarDays size={24} />
+                    <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: '1.15rem', flex: 1 }}>
+                      {t.playDaily}
+                    </h3>
+                    {visibleStreak > 0 && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 900 }}>
+                        <Flame size={18} color="#fde047" /> {visibleStreak}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '0.85rem', fontWeight: 600, opacity: 0.9 }}>
+                    {dailyDoneToday ? t.dailyDone : t.dailyDesc}
                   </p>
                 </button>
               </div>
@@ -556,7 +760,7 @@ export default function App() {
         )}
 
         {gameState === 'playing' && currentQuestion && (
-          <div 
+          <div
             style={{
               maxWidth: '1200px',
               margin: '0 auto',
@@ -568,7 +772,7 @@ export default function App() {
             }}
           >
             {/* Left Main Game Column */}
-            <div style={{ flex: 1, minWidth: '320px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 'min(320px, 100%)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <Lifelines
                 lifelines={lifelines}
                 currentLanguage={language}
@@ -577,7 +781,7 @@ export default function App() {
                 onUseExpert={handleUseExpert}
                 onUseSwap={handleUseSwap}
                 onWatchAdExtraLifeline={handleWatchAdExtraLifeline}
-                disabled={answerState === 'locked' || answerState === 'correct' || answerState === 'wrong'}
+                disabled={adLoading || answerState === 'locked' || answerState === 'correct' || answerState === 'wrong'}
               />
 
               <QuestionCard
@@ -588,6 +792,9 @@ export default function App() {
                 answerState={answerState}
                 onSelectOption={handleSelectOption}
                 onConfirmAnswer={handleConfirmAnswer}
+                timeLeft={timeLeft}
+                timeLimit={BLITZ_SECONDS_PER_QUESTION}
+                timedOut={timedOut}
               />
 
               {/* Walk Away Cash Out Button */}
@@ -620,10 +827,46 @@ export default function App() {
               prizeLadder={prizeLadder}
               currentLevelIndex={currentLevelIndex}
               safetyCheckpoints={safetyCheckpoints}
+              title={t.prizeLadder}
             />
           </div>
         )}
       </main>
+
+      {/* Rewarded video loading overlay */}
+      {adLoading && (
+        <div className="modal-backdrop" style={{ zIndex: 2000 }}>
+          <div className="glass-panel" style={{ padding: '24px 32px', borderRadius: '18px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <Tv size={24} color="#34d399" />
+            <span style={{ fontWeight: 800, color: '#fff' }}>{t.adLoading}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Short notice toast */}
+      {notice && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: 'calc(24px + env(safe-area-inset-bottom))',
+            transform: 'translateX(-50%)',
+            maxWidth: '90%',
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '1px solid #ef4444',
+            color: '#fecaca',
+            padding: '12px 18px',
+            borderRadius: '14px',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            zIndex: 3000,
+            textAlign: 'center'
+          }}
+        >
+          {notice}
+        </div>
+      )}
 
       {/* Modals */}
       {showAudienceModal && (
@@ -677,7 +920,8 @@ export default function App() {
           isSafetyRetained={isSafetyRetained}
           canReviveWithAd={canRevive}
           currentLanguage={language}
-          onPlayAgain={() => handleStartGame(gameMode)}
+          onPlayAgain={() => (gameMode === 'daily' ? setGameState('menu') : handleStartGame(gameMode))}
+          onBackToMenu={() => setGameState('menu')}
           onWatchAdRevive={handleWatchAdRevive}
         />
       )}

@@ -1,6 +1,6 @@
 export type Language = 'it' | 'en' | 'es' | 'fr' | 'de';
 
-export type GameMode = 'classic' | 'super' | 'blitz';
+export type GameMode = 'classic' | 'super' | 'blitz' | 'daily';
 
 export interface LocalizedString {
   it: string;

@@ -75,11 +75,11 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             <strong style={{ color: 'var(--cyan-accent)' }}>Level {stats.highestLadderLevel}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #334155' }}>
-            <span style={{ color: '#cbd5e1' }}>Classic Mode Victories</span>
+            <span style={{ color: '#cbd5e1' }}>{t.classicWinsLabel}</span>
             <strong style={{ color: '#10b981' }}>{stats.classicWins}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
-            <span style={{ color: '#cbd5e1' }}>Super Milionario Victories</span>
+            <span style={{ color: '#cbd5e1' }}>{t.superWinsLabel}</span>
             <strong style={{ color: 'var(--gold-primary)' }}>{stats.superWins}</strong>
           </div>
         </div>

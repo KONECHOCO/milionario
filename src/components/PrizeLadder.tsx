@@ -5,12 +5,14 @@ interface PrizeLadderProps {
   prizeLadder: number[];
   currentLevelIndex: number; // 0-based
   safetyCheckpoints: number[]; // e.g. [5, 10] (1-based levels 5 and 10)
+  title: string;
 }
 
 export const PrizeLadder: React.FC<PrizeLadderProps> = ({
   prizeLadder,
   currentLevelIndex,
-  safetyCheckpoints
+  safetyCheckpoints,
+  title
 }) => {
   // Ladder is usually displayed top-to-bottom (highest prize at top)
   const reversedLadder = [...prizeLadder].map((amount, originalIdx) => ({
@@ -57,7 +59,7 @@ export const PrizeLadder: React.FC<PrizeLadderProps> = ({
             color: 'var(--gold-light)'
           }}
         >
-          MONTEPREMI
+          {title}
         </span>
       </div>
 

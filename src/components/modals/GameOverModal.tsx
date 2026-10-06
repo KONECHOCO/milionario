@@ -12,6 +12,7 @@ interface GameOverModalProps {
   currentLanguage: Language;
   onPlayAgain: () => void;
   onWatchAdRevive: () => void;
+  onBackToMenu: () => void;
 }
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
@@ -21,7 +22,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   canReviveWithAd,
   currentLanguage,
   onPlayAgain,
-  onWatchAdRevive
+  onWatchAdRevive,
+  onBackToMenu
 }) => {
   const t = UI_TRANSLATIONS[currentLanguage];
 
@@ -151,6 +153,22 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           >
             <RotateCcw size={20} />
             <span>{t.playAgain}</span>
+          </button>
+
+          <button
+            onClick={onBackToMenu}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--card-border)',
+              color: '#cbd5e1',
+              padding: '10px 24px',
+              borderRadius: '14px',
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              cursor: 'pointer'
+            }}
+          >
+            {t.backToMenu}
           </button>
         </div>
       </div>

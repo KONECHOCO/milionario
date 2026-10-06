@@ -1,4 +1,5 @@
-import type { Question, LocalizedOptions } from '../types';
+import type { Question, LocalizedOptions, GameMode, Language } from '../types';
+import { EXTRA_QUESTIONS } from './questionBank';
 
 export const QUESTION_BANK: Question[] = [
   // --- LEVEL 1 (€100) ---
@@ -353,28 +354,6 @@ export const QUESTION_BANK: Question[] = [
     correctAnswer: 0
   },
 
-  // --- LEVEL 10 (€32,000 - SAFETY CHECKPOINT) ---
-  {
-    id: 'l10_q1',
-    level: 10,
-    category: 'Geography',
-    question: {
-      it: 'Qual è il fiume più lungo del mondo secondo le recenti misurazioni satellitari?',
-      en: 'Which is the longest river in the world according to recent satellite data?',
-      es: '¿Cuál es el río más largo del mundo según mediciones satelitales recientes?',
-      fr: 'Quel est le plus long fleuve du monde selon les récentes mesures satellites ?',
-      de: 'Welcher ist der längste Fluss der Welt nach neuesten Satellitenmessungen?'
-    },
-    options: {
-      it: ['Rio delle Amazzoni', 'Nilo', 'Mississippi', 'Yangtze'],
-      en: ['Amazon', 'Nile', 'Mississippi', 'Yangtze'],
-      es: ['Amazonas', 'Nilo', 'Misisipi', 'Yangtsé'],
-      fr: ['Amazone', 'Nil', 'Mississippi', 'Yangtsé'],
-      de: ['Amazonas', 'Nil', 'Mississippi', 'Jangtsekiang']
-    },
-    correctAnswer: 0
-  },
-
   // --- LEVEL 11 (€64,000) ---
   {
     id: 'l11_q1',
@@ -571,13 +550,13 @@ export const SAFETY_CHECKPOINTS_SUPER = [5, 10, 17]; // Level index 5, 10, 17
 /**
  * Shuffles question options dynamically and computes new correct answer index
  */
-export function shuffleQuestionOptions(q: Question): { question: Question; shuffledOptions: LocalizedOptions; correctIndex: number } {
+export function shuffleQuestionOptions(q: Question, rng: () => number = Math.random): { question: Question; shuffledOptions: LocalizedOptions; correctIndex: number } {
   const originalCorrectIndex = q.correctAnswer;
   const indices = [0, 1, 2, 3];
 
   // Fisher-Yates shuffle
   for (let i = indices.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
 
@@ -607,25 +586,136 @@ export function shuffleQuestionOptions(q: Question): { question: Question; shuff
   };
 }
 
-/**
- * Pick a random question for a given level, fallback to available pool if exact level not found.
- */
-export function getRandomQuestionForLevel(targetLevel: number, usedIds: Set<string>): Question {
-  let candidates = QUESTION_BANK.filter((q) => q.level === targetLevel && !usedIds.has(q.id));
 
-  // Fallback if all candidates for exact level used
-  if (candidates.length === 0) {
-    candidates = QUESTION_BANK.filter((q) => q.level === targetLevel);
-  }
+// Prize ladder for the 10-question modes (Blitz and Daily Challenge)
+export const SHORT_PRIZE_LADDER = [500, 1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000, 1000000];
+export const SAFETY_CHECKPOINTS_SHORT = [5];
 
-  // General fallback if level doesn't exist
-  if (candidates.length === 0) {
-    candidates = QUESTION_BANK;
-  }
+export const BLITZ_SECONDS_PER_QUESTION = 20;
 
-  const randomIndex = Math.floor(Math.random() * candidates.length);
-  const picked = candidates[randomIndex];
-
-  const shuffled = shuffleQuestionOptions(picked);
-  return shuffled.question;
+export function getPrizeLadder(mode: GameMode): number[] {
+  if (mode === 'super') return SUPER_PRIZE_LADDER;
+  if (mode === 'blitz' || mode === 'daily') return SHORT_PRIZE_LADDER;
+  return CLASSIC_PRIZE_LADDER;
 }
+
+export function getSafetyCheckpoints(mode: GameMode): number[] {
+  if (mode === 'super') return SAFETY_CHECKPOINTS_SUPER;
+  if (mode === 'blitz' || mode === 'daily') return SAFETY_CHECKPOINTS_SHORT;
+  return SAFETY_CHECKPOINTS_CLASSIC;
+}
+
+type TieredQuestion = Question & { tier: number };
+
+/** Difficulty tier (1 very easy ... 6 expert) of the original hand-written questions. */
+const tierForClassicLevel = (level: number) => (level > 15 ? 6 : Math.ceil(level / 3));
+
+const ALL_QUESTIONS: TieredQuestion[] = [
+  ...QUESTION_BANK.map((q) => ({ ...q, tier: tierForClassicLevel(q.level) })),
+  ...EXTRA_QUESTIONS,
+];
+
+export const QUESTION_COUNT = ALL_QUESTIONS.length;
+
+/** Maps a ladder position to a difficulty tier for the given mode. */
+export function tierForLevel(level: number, mode: GameMode): number {
+  if (mode === 'super') return Math.min(6, Math.ceil(level / 4));
+  if (mode === 'blitz' || mode === 'daily') return Math.min(5, Math.ceil(level / 2));
+  return Math.min(5, Math.ceil(level / 3));
+}
+
+const HISTORY_KEY = 'milionario_seen_questions';
+const HISTORY_LIMIT = 120;
+
+function readHistory(): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberQuestion(id: string) {
+  try {
+    const history = [id, ...readHistory().filter((seen) => seen !== id)].slice(0, HISTORY_LIMIT);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // storage unavailable: repeats just become a bit more likely
+  }
+}
+
+/** Deterministic PRNG so every player gets the same Daily Challenge. */
+export function seededRandom(seed: string): () => number {
+  let h = 1779033703 ^ seed.length;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(h ^ seed.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Picks a question for a ladder level: never one already used in this game and, when
+ * possible, not one seen in recent games, falling back to neighbouring tiers.
+ */
+export function getRandomQuestionForLevel(
+  level: number,
+  usedIds: Set<string>,
+  mode: GameMode = 'classic',
+  rng: () => number = Math.random
+): Question {
+  const tier = tierForLevel(level, mode);
+  const seen = mode === 'daily' ? new Set<string>() : new Set(readHistory());
+  const tiersToTry = [tier, tier - 1, tier + 1, tier - 2, tier + 2].filter((t) => t >= 1 && t <= 6);
+
+  let candidates: TieredQuestion[] = [];
+  for (const avoidSeen of [true, false]) {
+    for (const t of tiersToTry) {
+      candidates = ALL_QUESTIONS.filter((q) => q.tier === t && !usedIds.has(q.id) && !(avoidSeen && seen.has(q.id)));
+      if (candidates.length > 0) break;
+    }
+    if (candidates.length > 0) break;
+  }
+  if (candidates.length === 0) candidates = ALL_QUESTIONS.filter((q) => !usedIds.has(q.id));
+  if (candidates.length === 0) candidates = ALL_QUESTIONS;
+
+  const picked = candidates[Math.floor(rng() * candidates.length)];
+  if (mode !== 'daily') rememberQuestion(picked.id);
+  const { tier: _tier, ...question } = shuffleQuestionOptions(picked, rng).question as TieredQuestion;
+  return { ...question, level };
+}
+
+const CATEGORY_LABELS: Record<string, Record<Language, string>> = {
+  General: { it: 'Cultura generale', en: 'General knowledge', es: 'Cultura general', fr: 'Culture générale', de: 'Allgemeinwissen' },
+  Geography: { it: 'Geografia', en: 'Geography', es: 'Geografía', fr: 'Géographie', de: 'Geografie' },
+  History: { it: 'Storia', en: 'History', es: 'Historia', fr: 'Histoire', de: 'Geschichte' },
+  'Ancient History': { it: 'Storia antica', en: 'Ancient history', es: 'Historia antigua', fr: 'Histoire ancienne', de: 'Antike' },
+  Science: { it: 'Scienze', en: 'Science', es: 'Ciencias', fr: 'Sciences', de: 'Wissenschaft' },
+  Chemistry: { it: 'Chimica', en: 'Chemistry', es: 'Química', fr: 'Chimie', de: 'Chemie' },
+  Physics: { it: 'Fisica', en: 'Physics', es: 'Física', fr: 'Physique', de: 'Physik' },
+  'Quantum Physics': { it: 'Fisica quantistica', en: 'Quantum physics', es: 'Física cuántica', fr: 'Physique quantique', de: 'Quantenphysik' },
+  Biology: { it: 'Biologia', en: 'Biology', es: 'Biología', fr: 'Biologie', de: 'Biologie' },
+  Medicine: { it: 'Medicina', en: 'Medicine', es: 'Medicina', fr: 'Médecine', de: 'Medizin' },
+  Nature: { it: 'Natura', en: 'Nature', es: 'Naturaleza', fr: 'Nature', de: 'Natur' },
+  Space: { it: 'Spazio', en: 'Space', es: 'Espacio', fr: 'Espace', de: 'Weltraum' },
+  Astronomy: { it: 'Astronomia', en: 'Astronomy', es: 'Astronomía', fr: 'Astronomie', de: 'Astronomie' },
+  Astrophysics: { it: 'Astrofisica', en: 'Astrophysics', es: 'Astrofísica', fr: 'Astrophysique', de: 'Astrophysik' },
+  Art: { it: 'Arte', en: 'Art', es: 'Arte', fr: 'Art', de: 'Kunst' },
+  Literature: { it: 'Letteratura', en: 'Literature', es: 'Literatura', fr: 'Littérature', de: 'Literatur' },
+  Music: { it: 'Musica', en: 'Music', es: 'Música', fr: 'Musique', de: 'Musik' },
+  'Classical Music': { it: 'Musica classica', en: 'Classical music', es: 'Música clásica', fr: 'Musique classique', de: 'Klassische Musik' },
+  Cinema: { it: 'Cinema', en: 'Cinema', es: 'Cine', fr: 'Cinéma', de: 'Film' },
+  Sports: { it: 'Sport', en: 'Sports', es: 'Deportes', fr: 'Sport', de: 'Sport' },
+  Tech: { it: 'Tecnologia', en: 'Technology', es: 'Tecnología', fr: 'Technologie', de: 'Technik' },
+  Technology: { it: 'Tecnologia', en: 'Technology', es: 'Tecnología', fr: 'Technologie', de: 'Technik' },
+  Food: { it: 'Cucina', en: 'Food', es: 'Gastronomía', fr: 'Gastronomie', de: 'Essen' },
+  Mythology: { it: 'Mitologia', en: 'Mythology', es: 'Mitología', fr: 'Mythologie', de: 'Mythologie' },
+};
+
+export const categoryLabel = (category: string, lang: Language) => CATEGORY_LABELS[category]?.[lang] ?? category;

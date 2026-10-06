@@ -1,7 +1,8 @@
 import React from 'react';
 import type { Question, Language } from '../types';
 import { UI_TRANSLATIONS } from '../i18n/translations';
-import { CheckCircle2, HelpCircle } from 'lucide-react';
+import { CheckCircle2, HelpCircle, Timer } from 'lucide-react';
+import { categoryLabel } from '../data/questions';
 
 interface QuestionCardProps {
   question: Question;
@@ -11,6 +12,9 @@ interface QuestionCardProps {
   answerState: 'idle' | 'selected' | 'locked' | 'correct' | 'wrong';
   onSelectOption: (optionIndex: number) => void;
   onConfirmAnswer: () => void;
+  timeLeft?: number | null; // seconds left in timed modes
+  timeLimit?: number;
+  timedOut?: boolean;
 }
 
 const OPTION_PREFIXES = ['A', 'B', 'C', 'D'];
@@ -22,7 +26,10 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   disabledOptions,
   answerState,
   onSelectOption,
-  onConfirmAnswer
+  onConfirmAnswer,
+  timeLeft = null,
+  timeLimit = 0,
+  timedOut = false
 }) => {
   const t = UI_TRANSLATIONS[currentLanguage];
   const qText = question.question[currentLanguage] || question.question.it;
@@ -59,12 +66,32 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             letterSpacing: '0.5px'
           }}
         >
-          {t.category}: {question.category}
+          {categoryLabel(question.category, currentLanguage)}
         </span>
         <span style={{ color: 'var(--gold-light)', fontWeight: 700, fontSize: '0.9rem' }}>
           {t.questionTitle} {question.level}
         </span>
       </div>
+
+      {/* Countdown (Lightning round / Daily challenge) */}
+      {timeLeft !== null && timeLimit > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Timer size={20} color={timeLeft <= 5 ? '#ef4444' : 'var(--gold-primary)'} />
+          <div style={{ flex: 1, height: '10px', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.8)', overflow: 'hidden', border: '1px solid var(--card-border)' }}>
+            <div
+              style={{
+                width: `${(timeLeft / timeLimit) * 100}%`,
+                height: '100%',
+                background: timeLeft <= 5 ? '#ef4444' : 'var(--gold-gradient)',
+                transition: 'width 1s linear'
+              }}
+            />
+          </div>
+          <span style={{ fontWeight: 900, minWidth: '32px', textAlign: 'right', color: timeLeft <= 5 ? '#fca5a5' : '#fff' }}>
+            {timeLeft}s
+          </span>
+        </div>
+      )}
 
       {/* Main Question Box */}
       <div 
@@ -99,12 +126,13 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
       <div 
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(360px, 100%), 1fr))',
           gap: '16px'
         }}
       >
         {optionsText.map((optionText, idx) => {
-          const isDisabled = disabledOptions.includes(idx);
+          const isRevealed = (answerState === 'correct' || answerState === 'wrong') && idx === question.correctAnswer;
+          const isDisabled = disabledOptions.includes(idx) && !isRevealed;
           const isSelected = selectedOption === idx;
           let optionClass = 'option-hexagon';
 
@@ -114,9 +142,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             if (answerState === 'correct') optionClass += ' correct';
             else if (answerState === 'wrong') optionClass += ' wrong';
             else optionClass += ' selected';
-          } else if (answerState === 'correct' && idx === question.correctAnswer) {
-            // Flash correct answer if player picked wrong
-            optionClass += ' correct';
+          } else if (answerState === 'wrong' && idx === question.correctAnswer) {
+            // Player picked wrong (or ran out of time): reveal the right answer
+            optionClass += ' correct reveal';
           }
 
           return (
@@ -167,6 +195,21 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             <CheckCircle2 size={22} />
             <span>{t.lockAnswer} ({OPTION_PREFIXES[selectedOption]})</span>
           </button>
+        </div>
+      )}
+
+      {/* Wrong answer / time out: spell out the right answer */}
+      {answerState === 'wrong' && (
+        <div
+          style={{
+            textAlign: 'center',
+            fontWeight: 800,
+            color: '#a7f3d0',
+            animation: 'fadeIn 0.3s ease-out'
+          }}
+        >
+          {timedOut && <div style={{ color: '#fca5a5', marginBottom: '4px' }}>{t.timeUp}</div>}
+          {t.correctAnswerWas}: {OPTION_PREFIXES[question.correctAnswer]} – {optionsText[question.correctAnswer]}
         </div>
       )}
 
