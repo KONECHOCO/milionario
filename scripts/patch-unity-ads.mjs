@@ -43,3 +43,11 @@ if (!att.includes('DispatchQueue.main.async { [weak self] in self?.requestPermis
   await writeFile(attPath, att)
   console.log('Patched App Tracking Transparency plugin to request on the main thread.')
 }
+
+// The plugin pins Unity Ads SDK 4.9.x (early 2024): bidding ad units (BP_*) need a current SDK.
+const podspecPath = 'node_modules/capacitor-unity-ads/CapacitorUnityAds.podspec'
+let podspec = await readFile(podspecPath, 'utf8')
+podspec = podspec.replace("s.dependency 'UnityAds', '~> 4.9.2'", "s.dependency 'UnityAds', '~> 4.19'")
+if (!podspec.includes("'~> 4.19'")) throw new Error('Unity Ads podspec patch did not apply')
+await writeFile(podspecPath, podspec)
+console.log('Bumped Unity Ads iOS SDK to 4.19.x.')

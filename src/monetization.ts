@@ -69,20 +69,30 @@ function waitUntilVisible(): Promise<void> {
 }
 
 /**
- * Shows the App Tracking Transparency prompt. It has to be requested once the app is
- * active: calling it during launch (as before) makes iOS silently skip the dialog.
+ * Waits for the App Tracking Transparency decision. The native AppDelegate shows the prompt
+ * once the app is active (iOS ignores requests made during launch); if it is still pending
+ * after a few seconds the plugin asks too. Unity Ads is initialized only afterwards.
  */
 async function requestTrackingPermission() {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await waitUntilVisible()
-    await delay(attempt === 0 ? 1000 : 1500)
+  await waitUntilVisible()
+  const startedAt = Date.now()
+  let askedFromJs = false
+  while (Date.now() - startedAt < 120000) {
     const { status } = await AppTrackingTransparency.getStatus()
-    logStep(`ATT status before request: ${status}`)
-    if (status !== 'notDetermined') return status
-    const result = await AppTrackingTransparency.requestPermission()
-    logStep(`ATT request result: ${result.status}`)
-    if (result.status !== 'notDetermined') return result.status
+    if (status !== 'notDetermined') {
+      logStep(`ATT decided: ${status}`)
+      return status
+    }
+    if (!askedFromJs && Date.now() - startedAt > 3000 && document.visibilityState === 'visible') {
+      askedFromJs = true
+      logStep('ATT still pending, requesting from plugin')
+      const result = await AppTrackingTransparency.requestPermission()
+      logStep(`ATT plugin result: ${result.status}`)
+      if (result.status !== 'notDetermined') return result.status
+    }
+    await delay(500)
   }
+  logStep('ATT: no decision after 120s')
   return 'notDetermined'
 }
 
@@ -118,8 +128,13 @@ async function loadWithFallback(load: (id: string) => Promise<void>, primary: st
     lastAdError = `load ${primary}: ${errorText(error)}`
     logStep(lastAdError)
     if (primary === fallback) throw error
-    await withTimeout(load(fallback), 15000, `load ${fallback}`)
-    logStep(`loaded ${fallback}`)
+    try {
+      await withTimeout(load(fallback), 15000, `load ${fallback}`)
+      logStep(`loaded ${fallback}`)
+    } catch (fallbackError) {
+      logStep(`load ${fallback}: ${errorText(fallbackError)}`)
+      throw error // report the configured placement's error, not the fallback's
+    }
   }
 }
 

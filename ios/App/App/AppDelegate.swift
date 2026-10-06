@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AppTrackingTransparency
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -27,6 +28,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        requestTrackingAuthorizationIfNeeded()
+    }
+
+    /// Shows the App Tracking Transparency prompt once the app is active (iOS ignores requests made
+    /// earlier). The web layer waits for this decision before initializing Unity Ads.
+    private func requestTrackingAuthorizationIfNeeded() {
+        guard #available(iOS 14, *), ATTrackingManager.trackingAuthorizationStatus == .notDetermined else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            guard UIApplication.shared.applicationState == .active,
+                  ATTrackingManager.trackingAuthorizationStatus == .notDetermined else { return }
+            ATTrackingManager.requestTrackingAuthorization { _ in }
+        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
