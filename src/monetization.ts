@@ -69,30 +69,37 @@ function waitUntilVisible(): Promise<void> {
 }
 
 /**
- * Waits for the App Tracking Transparency decision. The native AppDelegate shows the prompt
- * once the app is active (iOS ignores requests made during launch); if it is still pending
- * after a few seconds the plugin asks too. Unity Ads is initialized only afterwards.
+ * Asks for App Tracking Transparency once the app is active (iOS ignores requests made during
+ * launch) and waits for the decision; Unity Ads is initialized only afterwards. A single
+ * requester on purpose: concurrent ATT requests are not preserved by iOS.
  */
 async function requestTrackingPermission() {
   await waitUntilVisible()
   const startedAt = Date.now()
   let askedFromJs = false
-  while (Date.now() - startedAt < 120000) {
+  // While the prompt is on screen the status stays notDetermined, so keep waiting; but if iOS
+  // never shows it (iOS 27.0/27.1 bug with Italian Apple Accounts, fixed in 27.2) stop after a
+  // few seconds: without consent the advertising ID stays zeroed, so ads load untracked.
+  let promptMayBeVisible = false
+  while (Date.now() - startedAt < (promptMayBeVisible ? 120000 : 8000)) {
     const { status } = await AppTrackingTransparency.getStatus()
     if (status !== 'notDetermined') {
       logStep(`ATT decided: ${status}`)
       return status
     }
-    if (!askedFromJs && Date.now() - startedAt > 3000 && document.visibilityState === 'visible') {
+    if (!askedFromJs && Date.now() - startedAt > 1000 && document.visibilityState === 'visible') {
       askedFromJs = true
-      logStep('ATT still pending, requesting from plugin')
+      logStep('ATT requesting')
+      const requestedAt = Date.now()
       const result = await AppTrackingTransparency.requestPermission()
-      logStep(`ATT plugin result: ${result.status}`)
+      logStep(`ATT plugin result: ${result.status} after ${Date.now() - requestedAt}ms`)
       if (result.status !== 'notDetermined') return result.status
+      // An instant notDetermined means iOS skipped the prompt; a slow one means it was shown
+      promptMayBeVisible = Date.now() - requestedAt > 1500
     }
     await delay(500)
   }
-  logStep('ATT: no decision after 120s')
+  logStep('ATT: no decision, continuing without tracking')
   return 'notDetermined'
 }
 
