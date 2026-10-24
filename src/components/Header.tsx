@@ -121,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Unity Ads Dev Dashboard Button (web preview only) */}
-        {!Capacitor.isNativePlatform() && <button
+        {!Capacitor.isNativePlatform() && !import.meta.env.VITE_PORTAL && <button
           onClick={onOpenUnityDashboard}
           title={t.unityAdsManager}
           style={{

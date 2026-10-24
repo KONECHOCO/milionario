@@ -187,3 +187,6 @@ export async function showRewardedAd(): Promise<boolean> {
     loadRewarded().catch(() => undefined)
   }
 }
+
+/** Used only by the web portal builds (monetization-portal.ts); nothing to do on iOS. */
+export function setGameplayActive(_active: boolean) {}

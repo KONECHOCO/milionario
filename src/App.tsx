@@ -37,7 +37,7 @@ import { StatsModal } from './components/modals/StatsModal';
 
 import { Play, Zap, LogOut, Tv, Timer, CalendarDays, Flame } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
-import { isNativeAdsAvailable, showInterstitialAd, showRewardedAd, getAdDiagnostics, lastAdError } from './monetization';
+import { isNativeAdsAvailable, showInterstitialAd, showRewardedAd, getAdDiagnostics, lastAdError, setGameplayActive } from './monetization';
 
 const DEFAULT_LIFELINES: LifelinesType = {
   fiftyFifty: { used: false, active: true },
@@ -128,6 +128,8 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(initialLanguage);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'gameover'>('menu');
+  // Web portals: tell the portal when a game is running
+  useEffect(() => setGameplayActive(gameState === 'playing'), [gameState]);
   const [gameMode, setGameMode] = useState<GameMode>('classic');
 
   const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(0);
@@ -744,8 +746,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Simulated banner placeholder (web preview only) */}
-            {!Capacitor.isNativePlatform() && <div
+            {/* Simulated banner placeholder (web preview only, never on the game portals) */}
+            {!Capacitor.isNativePlatform() && !import.meta.env.VITE_PORTAL && <div
               className="glass-panel"
               style={{
                 padding: '14px 20px',

@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "mobile:sync": "npm run build && cap sync ios",
     "assets:ios": "node scripts/generate-ios-assets.mjs",
-    "screenshots:store": "node scripts/capture-store-screenshots.mjs"
+    "screenshots:store": "node scripts/capture-store-screenshots.mjs",
+    "build:crazygames": "tsc -b && vite build --mode crazygames",
+    "build:itch": "tsc -b && vite build --mode itch"
   },
   "dependencies": {
     "@capacitor/core": "^7.6.9",
