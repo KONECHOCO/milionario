@@ -67,7 +67,9 @@ function requestAd(type: 'midgame' | 'rewarded'): Promise<boolean> {
       adFinished: () => resolve(true),
       adError: (error) => {
         lastAdError = `${type}: ${String((error as { code?: string })?.code ?? error)}`
-        resolve(false)
+        // No video available (Basic launch with ads disabled, no fill): the reward still counts,
+        // a reward button that does nothing is a rejection reason on CrazyGames
+        resolve(type === 'rewarded')
       },
     })
   })
@@ -80,9 +82,9 @@ export async function showInterstitialAd(): Promise<boolean> {
   return requestAd('midgame')
 }
 
-/** Resolves true when the reward is earned: always on itch.io, after a full video on CrazyGames. */
+/** Resolves true when the reward is earned: always on itch.io, after a full video (or when no video is available) on CrazyGames. */
 export async function showRewardedAd(): Promise<boolean> {
   if (PORTAL !== 'crazygames') return true
-  if (!(await initializeMonetization())) return false
+  if (!(await initializeMonetization())) return true
   return requestAd('rewarded')
 }
