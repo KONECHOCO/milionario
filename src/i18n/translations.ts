@@ -427,3 +427,15 @@ export const UI_TRANSLATIONS: Record<Language, Record<string, string>> = {
     questionsInBank: 'Fragen in 5 Sprachen',
   }
 };
+
+// Web game portals: neutral game name (the store apps keep their own name).
+if (import.meta.env.VITE_PORTAL) {
+  const portalNames: Record<Language, Record<string, string>> = {
+    it: { appTitle: 'MILLION CLIMB', appSubtitle: 'Quiz', playSuper: 'SUPER CLIMB (25 DOMANDE)', superWinsLabel: 'Vittorie Super Climb' },
+    en: { appTitle: 'MILLION CLIMB', appSubtitle: 'Quiz', playSuper: 'SUPER CLIMB (25 QUESTIONS)', superWinsLabel: 'Super Climb wins' },
+    es: { appTitle: 'MILLION CLIMB', appSubtitle: 'Quiz', playSuper: 'SUPER CLIMB (25 PREGUNTAS)', superWinsLabel: 'Victorias Super Climb' },
+    fr: { appTitle: 'MILLION CLIMB', appSubtitle: 'Quiz', playSuper: 'SUPER CLIMB (25 QUESTIONS)', superWinsLabel: 'Victoires Super Climb' },
+    de: { appTitle: 'MILLION CLIMB', appSubtitle: 'Quiz', playSuper: 'SUPER CLIMB (25 FRAGEN)', superWinsLabel: 'Siege Super Climb' },
+  }
+  for (const lang of Object.keys(portalNames) as Language[]) Object.assign(UI_TRANSLATIONS[lang], portalNames[lang])
+}

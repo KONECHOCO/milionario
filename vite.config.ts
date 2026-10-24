@@ -11,9 +11,14 @@ export default defineConfig(({ mode }) => {
     build: portal ? { outDir: `dist-${portal}` } : {},
     plugins: [
       react(),
-      ...(portal === 'crazygames' ? [{
-        name: 'crazygames-sdk',
-        transformIndexHtml: () => [{ tag: 'script', attrs: { src: 'https://sdk.crazygames.com/crazygames-sdk-v3.js' }, injectTo: 'head-prepend' as const }],
+      ...(portal ? [{
+        name: 'portal-html',
+        transformIndexHtml: (html: string) => ({
+          html: html.replace(/<title>.*<\/title>/, '<title>Million Climb Quiz</title>'),
+          tags: portal === 'crazygames'
+            ? [{ tag: 'script', attrs: { src: 'https://sdk.crazygames.com/crazygames-sdk-v3.js' }, injectTo: 'head-prepend' as const }]
+            : [],
+        }),
       }] : []),
     ],
     resolve: portal ? {
